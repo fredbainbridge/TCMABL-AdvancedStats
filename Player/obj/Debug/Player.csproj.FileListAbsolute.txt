@@ -1,0 +1,12 @@
+C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\Player.dll
+C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\Player.pdb
+C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\System.Management.Automation.dll
+C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\System.Net.Http.dll
+C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\obj\Debug\Player.csprojResolveAssemblyReference.cache
+C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\obj\Debug\Player.dll
+C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\obj\Debug\Player.pdb
+C:\Users\fbain\Source\TCMABL-AdvancedStats\Player\bin\Debug\Player.dll
+C:\Users\fbain\Source\TCMABL-AdvancedStats\Player\bin\Debug\Player.pdb
+C:\Users\fbain\Source\TCMABL-AdvancedStats\Player\obj\Debug\Player.csprojResolveAssemblyReference.cache
+C:\Users\fbain\Source\TCMABL-AdvancedStats\Player\obj\Debug\Player.dll
+C:\Users\fbain\Source\TCMABL-AdvancedStats\Player\obj\Debug\Player.pdb

@@ -56,37 +56,56 @@ Function Remove-FBTables {
 	[CmdletBinding()]
 	Param (
 		[string[]] $Tables = ("Game","PlayerCareer","SeasonAverage","__MigrationHistory"),		
-        [System.Data.SqlClient.SqlConnection]$SQLConnection	
+        [System.Data.SqlClient.SqlConnection]$SQLConnection,
+        [string]$schema = "dbo"
     )
-	$SQLConnection = New-Object System.Data.SqlClient.SqlConnection
-	$SQLConnection.ConnectionString = $ConnectionString
-	$SQLConnection.Open()
+	if($SQLConnection.State -ne "Open")
+    {
+        $SQLConnection.Open()
+    }
 
 	$Tables | ForEach-Object {
-		$Query = "drop table $PSITEM"
+		$Query = 
+@"
+            IF (EXISTS (SELECT * 
+                 FROM INFORMATION_SCHEMA.TABLES 
+                 WHERE TABLE_SCHEMA = '$schema' 
+                 AND  TABLE_NAME = '$PSITEM'))
+            BEGIN
+                DROP TABLE $PSITEM
+            END
+"@
+
 		$SQLCmd = New-Object System.Data.SqlClient.SqlCommand
 		$SQLCmd.Connection = $SQLConnection
 		$SQLCmd.CommandText = $Query
-		$x = $sqlCmd.ExecuteNonQuery() 
+		Write-Verbose "Removing table $PSITEM if it exists"
+        $x = $sqlCmd.ExecuteNonQuery() 
+        
+        
 	}
 }
 #Create Tables
 Function Create-FBTables {
-    
-$Game = @"
-CREATE TABLE [dbo].[Game] (
-    [ID]     INT            IDENTITY (1, 1) NOT NULL,
-    [Season] NVARCHAR (MAX) NULL,
-    [GameID] INT            NOT NULL,
-    [Team1]  NVARCHAR (MAX) NULL,
-    [Score1] INT NULL,
-    [Team2]  NVARCHAR (MAX) NULL,
-    [Score2] INT NULL
-);
+    [CmdletBinding()]
+	Param (
+		[System.Data.SqlClient.SqlConnection]$SQLConnection        
+    )
+    $Game = 
+@"
+    CREATE TABLE [dbo].[Game] (
+        [ID]     INT            IDENTITY (1, 1) NOT NULL,
+        [Season] NVARCHAR (MAX) NULL,
+        [GameID] INT            NOT NULL,
+        [Team1]  NVARCHAR (MAX) NULL,
+        [Score1] INT NULL,
+        [Team2]  NVARCHAR (MAX) NULL,
+        [Score2] INT NULL
+    );
 
 "@
-$PlayerCareer = @" 
-
+$PlayerCareer = 
+@" 
     CREATE TABLE [dbo].[PlayerCareer] (
         [ID]               INT            IDENTITY (1, 1) NOT NULL,
         [Number]           NVARCHAR (MAX) NULL,
@@ -114,30 +133,39 @@ $PlayerCareer = @"
         [CaughtStealing]   INT            NOT NULL
     );
 "@
-$SeasonAverage = @"
-CREATE TABLE [dbo].[SeasonAverage] (
-    [ID]                 INT             IDENTITY (1, 1) NOT NULL,
-    [Season]             NVARCHAR (MAX)  NULL,
-    [AverageRunsPerGame] DECIMAL (18, 2) NOT NULL,
-    [AverageRunsPerTeam] DECIMAL (18, 2) NOT NULL,
-    [AveragewOBA]        DECIMAL (18, 2) NOT NULL
-);
+$SeasonAverage = 
+@"
+    CREATE TABLE [dbo].[SeasonAverage] (
+        [ID]                 INT             IDENTITY (1, 1) NOT NULL,
+        [Season]             NVARCHAR (MAX)  NULL,
+        [AverageRunsPerGame] DECIMAL (18, 2) NOT NULL,
+        [AverageRunsPerTeam] DECIMAL (18, 2) NOT NULL,
+        [AveragewOBA]        DECIMAL (18, 2) NOT NULL
+    );
 
 "@
 
-$ConnectionString = "Server=tcp:tcmablsqlsrv.database.windows.net,1433;Database=TCMABL-DEV;User ID=fred@tcmablsqlsrv;Password=Rival420!;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
-$SQLConnection = New-Object System.Data.SqlClient.SqlConnection
-$SQLConnection.ConnectionString = $ConnectionString
-$SQLConnection.Open()
-$SQLCmd = New-Object System.Data.SqlClient.SqlCommand
-$SQLCmd.Connection = $SQLConnection
-($Game, $PlayerCareer, $SeasonAverage) | ForEach-Object {
-    $SQLCmd.CommandText = $PSItem
-    $sqlCmd.ExecuteNonQuery()
+    if($SQLConnection.State -ne "Open")
+    {
+        $SQLConnection.Open()
+    }
+    $SQLCmd = New-Object System.Data.SqlClient.SqlCommand
+    $SQLCmd.Connection = $SQLConnection
+    ($Game, $PlayerCareer, $SeasonAverage) | ForEach-Object {
+        Write-Verbose "Executing `n $PSITEM"
+        $SQLCmd.CommandText = $PSItem
+        $null = $sqlCmd.ExecuteNonQuery()
+    }
 }
-}
+
+
 #populate tables.
 function Update-FBPlayerCareer {
+    [CmdletBinding()]
+	Param (
+		[System.Data.SqlClient.SqlConnection]$SQLConnection        
+    )
+<#
 if(Test-Path 'C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\Player.dll')
 {
 	Import-Module 'C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\Player.dll'
@@ -146,15 +174,13 @@ if(Test-Path C:\Modules\User\TCMABL\Player.dll)
 {
 	Import-Module C:\Modules\User\TCMABL\Player.dll
 }
-$ConnectionString = "Server=tcp:tcmablsqlsrv.database.windows.net,1433;Database=TCMABL-DEV;User ID=fred@tcmablsqlsrv;Password=Rival420!;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
-$SQLConnection = New-Object System.Data.SqlClient.SqlConnection
-$SQLConnection.ConnectionString = $ConnectionString
-Write-Output $SQLConnection
-	
-$SQLConnection.Open()
-$SQLCmd = New-Object System.Data.SqlClient.SqlCommand
-$SQLCmd.Connection = $SQLConnection
-$Text = 
+#>
+
+    
+    $SQLConnection.Open()
+    $SQLCmd = New-Object System.Data.SqlClient.SqlCommand
+    $SQLCmd.Connection = $SQLConnection
+    $Text = 
 @"
 CREATE PROCEDURE [dbo].[AddPlayer]
 	@Number VARCHAR(MAX),
@@ -216,8 +242,8 @@ AS
 
 "@	
 
-$SQLCmd.CommandText = $Text
-$result = $sqlCmd.ExecuteNonQuery()
+    $SQLCmd.CommandText = $Text
+    $result = $sqlCmd.ExecuteNonQuery()
 	
 #get the player data
 $url = "https://fredbainbridge.blob.core.windows.net/tcmabl/PlayerCareers.csv"
@@ -287,7 +313,7 @@ $string | ForEach-Object {
 }
 
 
-	}
+}
 
 function Update-FBGames {
 	$ConnectionString = "Server=tcp:tcmablsqlsrv.database.windows.net,1433;Database=TCMABL-DEV;User ID=fred@tcmablsqlsrv;Password=Rival420!;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
