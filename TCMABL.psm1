@@ -1,6 +1,4 @@
-#$SubscriptionID = "0ce36f9f-68f9-48bd-ab63-e23813e6745a"
-#login-azurermaccount 
-#select-AzureRMSubscription -SubscriptionId $SubscriptionID
+
 Function Invoke-FBAzureSubscription {
 	#This will require interaction if not currently logged in. 
 	#using pscredential usually wont work here.
@@ -57,9 +55,9 @@ Function Get-FBDatabaseReference {
 Function Remove-FBTables {
 	[CmdletBinding()]
 	Param (
-		[string[]] $Tables = ("Game","PlayerCareer","SeasonAverage","__MigrationHistory")		
-	)
-	$ConnectionString = "Server=tcp:tcmablsqlsrv.database.windows.net,1433;Database=TCMABL-DEV;User ID=fred@tcmablsqlsrv;Password=Rival420!;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+		[string[]] $Tables = ("Game","PlayerCareer","SeasonAverage","__MigrationHistory"),		
+        [System.Data.SqlClient.SqlConnection]$SQLConnection	
+    )
 	$SQLConnection = New-Object System.Data.SqlClient.SqlConnection
 	$SQLConnection.ConnectionString = $ConnectionString
 	$SQLConnection.Open()
