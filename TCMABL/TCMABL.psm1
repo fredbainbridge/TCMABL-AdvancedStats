@@ -163,26 +163,16 @@ $SeasonAverage =
 function Update-FBPlayerCareer {
     [CmdletBinding()]
 	Param (
-		[System.Data.SqlClient.SqlConnection]$SQLConnection        
+		[System.Data.SqlClient.SqlConnection]$SQLConnection,        
+        [string]$PlayerCareerDataFile = "https://fredbainbridge.blob.core.windows.net/tcmabl/PlayerCareers.csv" #this is a URL
     )
-<#
-if(Test-Path 'C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\Player.dll')
-{
-	Import-Module 'C:\Users\fbain\Source\Workspaces\TCMABL\TCMABLModule\Player\bin\Debug\Player.dll'
-}
-if(Test-Path C:\Modules\User\TCMABL\Player.dll)
-{
-	Import-Module C:\Modules\User\TCMABL\Player.dll
-}
-#>
-
     
     $SQLConnection.Open()
     $SQLCmd = New-Object System.Data.SqlClient.SqlCommand
     $SQLCmd.Connection = $SQLConnection
-    $Text = 
+    $StoredProcedureSQL = 
 @"
-CREATE PROCEDURE [dbo].[AddPlayer]
+    CREATE PROCEDURE [dbo].[AddPlayer]
 	@Number VARCHAR(MAX),
 	@Name VARCHAR(MAX),
 	@Team VARCHAR(MAX),
@@ -206,9 +196,9 @@ CREATE PROCEDURE [dbo].[AddPlayer]
 	@SacFlys INT,
 	@StolenBases INT,
 	@CaughtStealing INT	
-AS
+    AS
 	DECLARE @Count INT;
---
+    --
 	SELECT @Count = count(TCMABLID) FROM PlayerCareer WHERE TCMABLID = @TCMABLID AND Season = @Season AND GameType = @GameType AND League = @League
 	
 	IF @Count = 0
@@ -242,77 +232,74 @@ AS
 
 "@	
 
-    $SQLCmd.CommandText = $Text
+    $SQLCmd.CommandText = $StoredProcedureSQL
     $result = $sqlCmd.ExecuteNonQuery()
 	
-#get the player data
-$url = "https://fredbainbridge.blob.core.windows.net/tcmabl/PlayerCareers.csv"
-$wc = new-object system.net.WebClient
-$webpage = $wc.DownloadData($url)
-$string = ([System.Text.Encoding]::ASCII.GetString($webpage)).Split("`r`n") | ? {$_}	
-$Player = [TCMABL.Player]::new()
-$string | ForEach-Object {
-	$stats = $PSITEM -split ","
-	if($stats.count -eq 25)
-	{
-		$player.Number = $stats[1]
-		$player.Name = ($stats[2])+","+($stats[3])
-		$player.Team = $stats[4]
-		$player.Season = $stats[5]
-		$player.GameType = $stats[6]
-		$player.League = $stats[7]
-		$player.TCMABLID = $stats[8]
-		$player.GamesPlayed = $stats[9]
-		$player.PlateAppearances = $stats[10]
-		$player.AtBats = $stats[11]
-		$player.Runs = $stats[12]
-		$player.Hits = $stats[13]
-		$player.Doubles = $stats[14]
-		$player.Triples = $stats[15]
-		$player.HomeRuns = $stats[16]
-		$player.RunsBattedIn = $stats[17]
-		$player.HitByPitch = $stats[18]
-		$player.BaseOnBalls = $stats[19]
-		$player.StrikeOuts =  $stats[20]
-		$player.SacBunts =  $stats[21]
-		$player.SacFlys = $stats[22]
-		$player.StolenBases = $stats[23]
-		$player.CaughtStealing = $stats[24]
-	}		
-	#call the new stored procedure with player data.
-	$SqlCmd = New-Object System.Data.SqlClient.SqlCommand
-	$SqlCmd.Connection = $SQLConnection
-	$SqlCmd.CommandText = "EXEC AddPlayer @Number, @Name, @Team, @Season, @GameType, @League, @TCMABLID, @GamesPlayed, @PlateAppearances, @AtBats, @Runs, @Hits, `
-	@Doubles, @Triples, @HomeRuns, @RunsBattedIn, @HitByPitch, @BaseOnBalls, @StrikeOuts, @SacBunts, @SacFlys, @StolenBases, @CaughtStealing"
-	$SqlCmd.Parameters.AddWithValue("@Number", $Player.Number)	| out-null
-	$SqlCmd.Parameters.AddWithValue("@Name", $Player.Name) | out-null
-	$SqlCmd.Parameters.AddWithValue("@Team", $Player.Team) | out-null
-	$SqlCmd.Parameters.AddWithValue("@Season", $Player.Season) | out-null
-	$SqlCmd.Parameters.AddWithValue("@GameType", $Player.GameType) | out-null
-	$SqlCmd.Parameters.AddWithValue("@League", $Player.League) | out-null
-	$SqlCmd.Parameters.AddWithValue("@TCMABLID", $Player.TCMABLID) | out-null
-	$SqlCmd.Parameters.AddWithValue("@GamesPlayed", $Player.GamesPlayed) | out-null
-	$SqlCmd.Parameters.AddWithValue("@PlateAppearances", $Player.PlateAppearances) | out-null
-	$SqlCmd.Parameters.AddWithValue("@AtBats", $Player.AtBats) | out-null
-	$SqlCmd.Parameters.AddWithValue("@Runs", $Player.Runs) | out-null
-	$SqlCmd.Parameters.AddWithValue("@Hits", $Player.Hits) | out-null
-	$SqlCmd.Parameters.AddWithValue("@Doubles", $Player.Doubles) | out-null
-	$SqlCmd.Parameters.AddWithValue("@Triples", $Player.Triples) | out-null
-	$SqlCmd.Parameters.AddWithValue("@HomeRuns", $Player.HomeRuns) | out-null
-	$SqlCmd.Parameters.AddWithValue("@RunsBattedIn", $Player.RunsBattedIn) | out-null
-	$SqlCmd.Parameters.AddWithValue("@HitByPitch", $Player.HitByPitch) | out-null
-	$SqlCmd.Parameters.AddWithValue("@BaseOnBalls", $Player.BaseOnBalls) | out-null
-	$SqlCmd.Parameters.AddWithValue("@StrikeOuts", $Player.StrikeOuts)| out-null
-	$SqlCmd.Parameters.AddWithValue("@SacBunts", $Player.SacBunts)| out-null
-	$SqlCmd.Parameters.AddWithValue("@SacFlys", $Player.SacFlys)| out-null
-	$SqlCmd.Parameters.AddWithValue("@StolenBases", $Player.StolenBases)| out-null
-	$SqlCmd.Parameters.AddWithValue("@CaughtStealing", $Player.CaughtStealing)| out-null
-	Write-Host "Adding " + $Player.Name
-	$result = $sqlCmd.ExecuteReader()
-	$result.Close()
-}
-
-
+    #get the player data
+    $wc = new-object system.net.WebClient
+    $webpage = $wc.DownloadData($PlayerCareerDataFile)
+    $string = ([System.Text.Encoding]::ASCII.GetString($webpage)).Split("`r`n") | ? {$_}	
+    $Player = [TCMABL.Player]::new()  #This object type is loaded at runtime.  See TCMABL.PSD1
+    $string | ForEach-Object {
+	    $stats = $PSITEM -split ","
+	    if($stats.count -eq 25)
+	    {
+		    $player.Number = $stats[1]
+		    $player.Name = ($stats[2])+","+($stats[3])
+		    $player.Team = $stats[4]
+		    $player.Season = $stats[5]
+		    $player.GameType = $stats[6]
+		    $player.League = $stats[7]
+		    $player.TCMABLID = $stats[8]
+		    $player.GamesPlayed = $stats[9]
+		    $player.PlateAppearances = $stats[10]
+		    $player.AtBats = $stats[11]
+		    $player.Runs = $stats[12]
+		    $player.Hits = $stats[13]
+		    $player.Doubles = $stats[14]
+		    $player.Triples = $stats[15]
+		    $player.HomeRuns = $stats[16]
+		    $player.RunsBattedIn = $stats[17]
+		    $player.HitByPitch = $stats[18]
+		    $player.BaseOnBalls = $stats[19]
+		    $player.StrikeOuts =  $stats[20]
+		    $player.SacBunts =  $stats[21]
+		    $player.SacFlys = $stats[22]
+		    $player.StolenBases = $stats[23]
+		    $player.CaughtStealing = $stats[24]
+	    }		
+	    #call the new stored procedure with player data.
+	    $SqlCmd = New-Object System.Data.SqlClient.SqlCommand
+	    $SqlCmd.Connection = $SQLConnection
+	    $SqlCmd.CommandText = "EXEC AddPlayer @Number, @Name, @Team, @Season, @GameType, @League, @TCMABLID, @GamesPlayed, @PlateAppearances, @AtBats, @Runs, @Hits, `
+	    @Doubles, @Triples, @HomeRuns, @RunsBattedIn, @HitByPitch, @BaseOnBalls, @StrikeOuts, @SacBunts, @SacFlys, @StolenBases, @CaughtStealing"
+	    $SqlCmd.Parameters.AddWithValue("@Number", $Player.Number)	| out-null
+	    $SqlCmd.Parameters.AddWithValue("@Name", $Player.Name) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@Team", $Player.Team) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@Season", $Player.Season) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@GameType", $Player.GameType) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@League", $Player.League) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@TCMABLID", $Player.TCMABLID) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@GamesPlayed", $Player.GamesPlayed) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@PlateAppearances", $Player.PlateAppearances) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@AtBats", $Player.AtBats) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@Runs", $Player.Runs) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@Hits", $Player.Hits) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@Doubles", $Player.Doubles) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@Triples", $Player.Triples) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@HomeRuns", $Player.HomeRuns) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@RunsBattedIn", $Player.RunsBattedIn) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@HitByPitch", $Player.HitByPitch) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@BaseOnBalls", $Player.BaseOnBalls) | out-null
+	    $SqlCmd.Parameters.AddWithValue("@StrikeOuts", $Player.StrikeOuts)| out-null
+	    $SqlCmd.Parameters.AddWithValue("@SacBunts", $Player.SacBunts)| out-null
+	    $SqlCmd.Parameters.AddWithValue("@SacFlys", $Player.SacFlys)| out-null
+	    $SqlCmd.Parameters.AddWithValue("@StolenBases", $Player.StolenBases)| out-null
+	    $SqlCmd.Parameters.AddWithValue("@CaughtStealing", $Player.CaughtStealing)| out-null
+	    Write-Verbose "Adding $Player.Name"
+	    $result = $sqlCmd.ExecuteReader()
+	    $result.Close()
+    }
 }
 
 function Update-FBGames {

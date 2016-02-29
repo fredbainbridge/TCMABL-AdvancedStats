@@ -5,7 +5,7 @@ if(get-module TCMABL)
 {
     Remove-Module TCMABL
 }
-Import-Module .\TCMABL.psm1
+Import-Module TCMABL
 
 Invoke-FBAzureSubscription -SubscriptionID $SubscriptionID
 
@@ -13,3 +13,4 @@ $DBConnection = Get-FBDatabaseReference -ConnectionString $ConnectionString
 
 Remove-FBTables -SQLConnection $DBConnection -Verbose
 Create-FBTables -SQLConnection $DBConnection -Verbose
+Update-FBPlayerCareer -SQLConnection $DBConnection -Verbose
