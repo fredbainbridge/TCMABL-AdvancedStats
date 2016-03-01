@@ -38,7 +38,7 @@ Set-AzureStorageBlobContent -File "C:\Users\fbain\Documents\TCMABLGames.csv" -Co
 
 #Azure funny business here.
 
-#Drop Existing Tables
+
 Function Get-FBDatabaseReference {
 	[CmdletBinding()]
 	[OutputType([System.Data.SqlClient.SqlConnection])]
@@ -52,10 +52,11 @@ Function Get-FBDatabaseReference {
 	Write-Output $SQLConnection
 }
 
+#Drop Existing Tables
 Function Remove-FBTables {
 	[CmdletBinding()]
 	Param (
-		[string[]] $Tables = ("Game","PlayerCareer","SeasonAverage","__MigrationHistory"),		
+		[string[]] $Tables = ("Game","PlayerCareer","SeasonAverage","PlayerCareerAdvancedStat"),	
         [System.Data.SqlClient.SqlConnection]$SQLConnection,
         [string]$schema = "dbo"
     )
@@ -138,20 +139,33 @@ $SeasonAverage =
     CREATE TABLE [dbo].[SeasonAverage] (
         [ID]                 INT             IDENTITY (1, 1) NOT NULL,
         [Season]             NVARCHAR (MAX)  NULL,
-        [AverageRunsPerGame] DECIMAL (18, 2) NOT NULL,
-        [AverageRunsPerTeam] DECIMAL (18, 2) NOT NULL,
-        [AveragewOBA]        DECIMAL (18, 2) NOT NULL
+        [AverageRunsPerGame] DECIMAL (18, 4) NOT NULL,
+        [AverageRunsPerTeam] DECIMAL (18, 4) NOT NULL,
+        [AveragewOBA]        DECIMAL (18, 4) NOT NULL,
+        [RunsPerWin]         DECIMAL (18, 4) NOT NULL
     );
 
 "@
 
+$AdvancedStats = 
+@"
+CREATE TABLE [dbo].[PlayerCareerAdvancedStat] (
+    [ID]     INT             IDENTITY (1, 1) NOT NULL,
+    [Player] NVARCHAR (MAX)  NULL,
+    [Team]   NVARCHAR (MAX)  NULL,
+    [Season] NVARCHAR (MAX)  NULL,
+    [wOBA]   DECIMAL (18, 2) NOT NULL,
+    [wRAA]   DECIMAL (18, 2) NOT NULL,
+    [WAR]    DECIMAL (18, 2) NOT NULL
+);
+"@
     if($SQLConnection.State -ne "Open")
     {
         $SQLConnection.Open()
     }
     $SQLCmd = New-Object System.Data.SqlClient.SqlCommand
     $SQLCmd.Connection = $SQLConnection
-    ($Game, $PlayerCareer, $SeasonAverage) | ForEach-Object {
+    ($Game, $PlayerCareer, $SeasonAverage, $AdvancedStats) | ForEach-Object {
         Write-Verbose "Executing `n $PSITEM"
         $SQLCmd.CommandText = $PSItem
         $null = $sqlCmd.ExecuteNonQuery()
@@ -167,7 +181,10 @@ function Update-FBPlayerCareer {
         [string]$PlayerCareerDataFile = "https://fredbainbridge.blob.core.windows.net/tcmabl/PlayerCareers.csv" #this is a URL
     )
     
-    $SQLConnection.Open()
+    if($SQLConnection.State -ne "Open")
+    {
+        $SQLConnection.Open()
+    }
     $SQLCmd = New-Object System.Data.SqlClient.SqlCommand
     $SQLCmd.Connection = $SQLConnection
     $StoredProcedureSQL = 
@@ -296,27 +313,32 @@ function Update-FBPlayerCareer {
 	    $SqlCmd.Parameters.AddWithValue("@SacFlys", $Player.SacFlys)| out-null
 	    $SqlCmd.Parameters.AddWithValue("@StolenBases", $Player.StolenBases)| out-null
 	    $SqlCmd.Parameters.AddWithValue("@CaughtStealing", $Player.CaughtStealing)| out-null
-	    Write-Verbose "Adding $Player.Name"
+	    $PlayerName = $Player.Name
+        Write-Verbose "Adding $PlayerName"
 	    $result = $sqlCmd.ExecuteReader()
 	    $result.Close()
     }
 }
 
 function Update-FBGames {
-	$ConnectionString = "Server=tcp:tcmablsqlsrv.database.windows.net,1433;Database=TCMABL-DEV;User ID=fred@tcmablsqlsrv;Password=Rival420!;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
-	$SQLConnection = New-Object System.Data.SqlClient.SqlConnection
-	$SQLConnection.ConnectionString = $ConnectionString
-	Write-Output $SQLConnection
-
-	$SQLConnection.Open()
+	[CmdletBinding()]
+	Param (
+		[System.Data.SqlClient.SqlConnection]$SQLConnection,        
+        [string]$GamesDataFile = "https://fredbainbridge.blob.core.windows.net/tcmabl/Games.csv" #this is a URL
+    )
+        
+	if($SQLConnection.State -ne "Open")
+    {
+        $SQLConnection.Open()
+    }
 	$SQLCmd = New-Object System.Data.SqlClient.SqlCommand
 	$SQLCmd.Connection = $SQLConnection
 	
-	$url = "https://fredbainbridge.blob.core.windows.net/tcmabl/Games.csv"
 	$wc = new-object system.net.WebClient
-	$webpage = $wc.DownloadData($url)
+	$webpage = $wc.DownloadData($GamesDataFile)
 	$string = ([System.Text.Encoding]::ASCII.GetString($webpage)).Split("`r`n") | ? {$_}	
-	$string | ForEach-Object {
+	Write-Verbose "Adding Games..."
+    $string | ForEach-Object {
 		$stats = $PSITEM -split ","
 		if($stats.count -eq 6)
 		{
@@ -328,29 +350,64 @@ function Update-FBGames {
 			$Score2= $stats[5]
 			$Query = "Insert into Game (Season, GameID, Team1, Score1, Team2, Score2) values ('$Season',$TCMABLID,'$Team1',$Score1,'$Team2',$Score2)"
 			$SqlCmd.CommandText = $query
-			$result = $sqlCmd.ExecuteNonQuery()
-			#$result.Close()
+			$result = $sqlCmd.ExecuteNonQuery()			
 		}
 	}
+    Write-Verbose "Finished"
 }	
 
 function Update-FBSeasonAverage {
-$StoredProcedure = 
+    [CmdletBinding()]
+	Param (
+		[System.Data.SqlClient.SqlConnection]$SQLConnection        
+    )
+        
+	if($SQLConnection.State -ne "Open")
+    {
+        $SQLConnection.Open()
+    }
+    $StoredProcedure = 
 @"
 CREATE PROCEDURE [dbo].[UpdateSeasonAverages]
 
 AS
+	--variables for average runs
 	DECLARE @s1 DECIMAL
 	DECLARE @s2 DECIMAL
 	DECLARE @t1 DECIMAL
 	DECLARE @t2 DECIMAL
 	DECLARE @c1 DECIMAL
 
+	--variables for wOBA
+	DECLARE @BBCoefficient DECIMAL = .72
+	DECLARE @HBPCoefficient DECIMAL = .75
+	DECLARE @1BCoefficient DECIMAL = .9
+	DECLARE @2BCoefficient DECIMAL = 1.24
+	DECLARE @3BCoefficient DECIMAL = 1.56
+	DECLARE @HRCoefficient DECIMAL = 1.95
+		
+	DECLARE @BB INT 
+	DECLARE @HBP INT
+	DECLARE @HITS INT
+	DECLARE @1B INT
+	DECLARE @2B INT
+	DECLARE @3B INT
+	DECLARE @HR INT
+	DECLARE @PA INT
+	DECLARE @wOBA DECIMAL(18,6)
+	DECLARE @RPW DECIMAL(18,6)
+
 	DECLARE @TempTable Table (RowID int identity, Season nvarchar(100))
 	INSERT INTO @TempTable SELECT distinct(Season) from Game
 	DECLARE @SeasonCount INT = (SELECT count(season) FROM @TempTable);
 	DECLARE @MinCount INT = 1;
 	DECLARE @Season nvarchar(100);
+
+	DECLARE @twOBA Table (RowID int identity, Season nvarchar(100), wOBA DECIMAL(18,4))
+	CREATE Table #twOBAPlayers (RowID int identity, Player nvarchar(max), Season nvarchar(100), wOBA DECIMAL(18,4))
+
+	DECLARE @MinCountPlayer INT = 1;
+	DECLARE @PlayerName VARCHAR(MAX);
 
 	WHILE(@SeasonCount >= @MinCount)
 	BEGIN
@@ -359,23 +416,147 @@ AS
 		SELECT @c1 = count(score1) FROM Game WHERE Season = @Season
 		SELECT @t1 = SUM(score1) FROM Game WHERE Season = @Season
 		SELECT @t2 = SUM(score2) FROM Game WHERE Season = @Season
-	
-		INSERT SeasonAverage (Season, AverageRunsPerGame, AverageRunsPerTeam)
-		SELECT @Season, @s1 / @c1, (@t1 + @t2) / (2 * @c1)
+		
+		SELECT	@BB = sum(BaseOnBalls), 
+				@HBP = sum(HitByPitch),
+				@HITS = sum(Hits),
+				@2B = sum(Doubles),
+				@3B = sum(Triples),
+				@HR = sum(HomeRuns),
+				@PA = sum(PlateAppearances)
+		FROM PlayerCareer WHERE Season = @Season	
+		SELECT @1B = @HITS - (@2B + @3B + @HR)
+		SET @wOBA = ((@BBCoefficient * @BB)+(@HBPCoefficient*@HBP)+(@1BCoefficient*@1B)+(@2BCoefficient*@2B)+(@3BCoefficient*@3B)+(@HRCoefficient*@HR))/@PA
+		SET @RPW = 2 * POWER(@s1 / @c1,.715)
+
+		INSERT SeasonAverage (Season, AverageRunsPerGame, AverageRunsPerTeam, AveragewOBA, RunsPerWin)
+		SELECT @Season, @s1 / @c1, (@t1 + @t2) / (2 * @c1), @wOBA, @RPW
+		
 		SET @MinCount = @MinCount + 1
 	END
 
 "@
-$ConnectionString = "Server=tcp:tcmablsqlsrv.database.windows.net,1433;Database=TCMABL-DEV;User ID=fred@tcmablsqlsrv;Password=Rival420!;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
-$SQLConnection = New-Object System.Data.SqlClient.SqlConnection
-$SQLConnection.ConnectionString = $ConnectionString
-$SQLConnection.Open()
-$SQLCmd = New-Object System.Data.SqlClient.SqlCommand
-$SQLCmd.Connection = $SQLConnection
-$SQLCmd.CommandText = $StoredProcedure
+    $SQLCmd = New-Object System.Data.SqlClient.SqlCommand
+    $SQLCmd.Connection = $SQLConnection
+    $SQLCmd.CommandText = $StoredProcedure
 
-$SQLCmd.ExecuteNonQuery()
+    $SQLCmd.ExecuteNonQuery()
+    Write-Verbose "Calculating Season Averages"
+    $SQLCmd.CommandText = "EXEC UpdateSeasonAverages"
+    $null = $SQLCmd.ExecuteNonQuery()
+    Write-Verbose "Finished"
+}
 
-$SQLCmd.CommandText = "EXEC UpdateSeasonAverages"
-$SQLCmd.ExecuteNonQuery()
+function Update-FBAdvancedStats {
+    [CmdletBinding()]
+	Param (
+		[System.Data.SqlClient.SqlConnection]$SQLConnection        
+    )
+        
+	if($SQLConnection.State -ne "Open")
+    {
+        $SQLConnection.Open()
+    }
+    $SQLCmd = New-Object System.Data.SqlClient.SqlCommand
+    $SQLCmd.Connection = $SQLConnection
+    $StoreProcedure = 
+@"
+CREATE PROCEDURE [dbo].UpdateAdvancedStats
+	
+AS
+	--wOBA per year
+--https://en.wikipedia.org/wiki/WOBA
+DECLARE @BBCoefficient DECIMAL = .72
+DECLARE @HBPCoefficient DECIMAL = .75
+DECLARE @1BCoefficient DECIMAL = .9
+DECLARE @2BCoefficient DECIMAL = 1.24
+DECLARE @3BCoefficient DECIMAL = 1.56
+DECLARE @HRCoefficient DECIMAL = 1.95
+		
+
+DECLARE @BB INT 
+DECLARE @HBP INT
+DECLARE @HITS INT
+DECLARE @1B INT
+DECLARE @2B INT
+DECLARE @3B INT
+DECLARE @HR INT
+DECLARE @PA INT
+DECLARE @wOBA DECIMAL(18,4)
+DECLARE @wOBASeason DECIMAL(18,4)
+DECLARE @wRAA DECIMAL(18,4)
+DECLARE @WAR DECIMAL(18,4)
+DECLARE @RPW DECIMAL(18,4)
+
+--DECLARE @twOBA Table (RowID int identity, Season nvarchar(100), wOBA DECIMAL(18,4))
+--DECLARE @twOBAPlayers Table (RowID int identity, Player nvarchar(max), Season nvarchar(100), wOBA DECIMAL(18,4))
+CREATE Table #twOBAPlayers (RowID int identity, Player nvarchar(max), Team nvarchar(max), Season nvarchar(100), wOBA DECIMAL(18,4), wRAA DECIMAL(18,4), WAR DECIMAL(18,4))
+
+DECLARE @tSeason Table (RowID int identity, Season nvarchar(100))
+INSERT INTO @tSeason SELECT distinct(Season) from Game
+
+DECLARE @SEASON VARCHAR(MAX);
+
+DECLARE @SeasonCount INT = (SELECT count(season) FROM @tSeason);
+DECLARE @PlayerCount INT
+DECLARE @MinCount INT = 1;
+DECLARE @MinCountPlayer INT = 1;
+DECLARE @PlayerName VARCHAR(MAX);
+DECLARE @PlayerTeam VARCHAR(MAX);
+
+WHILE(@SeasonCount >= @MinCount)
+	BEGIN
+		SELECT @Season = Season from @tSeason where RowID = @MinCount
+		SELECT @RPW = RunsPerWin, @wOBASeason = AveragewOBA From SeasonAverage where Season = @SEASON
+		
+		SET @MinCount = @MinCount + 1
+		
+		--Individual Players wOBA, wRAA and WAR by season
+		INSERT INTO #twOBAPlayers SELECT name, team, season, 0, 0, 0 FROM PlayerCareer WHERE Season = @SEASON and GameType = 'AllGames'
+		SELECT @PlayerCount = count(Player) FROM #twOBAPlayers
+		SET @MinCountPlayer = 1
+		WHILE(@PlayerCount >= @MinCountPlayer)
+			BEGIN
+				SELECT @PlayerName = Player, @PlayerTeam = team FROM #twOBAPlayers WHERE RowID = @MinCountPlayer
+				--SELECT * FROM #twOBAPlayers
+				SELECT	@BB = BaseOnBalls, 
+						@HBP = HitByPitch,
+						@HITS = Hits,
+						@2B = Doubles,
+						@3B = Triples,
+						@HR = HomeRuns,
+						@PA = PlateAppearances
+				FROM PlayerCareer 
+				WHERE Season = @SEASON AND Name = @PlayerName AND GameType = 'AllGames'
+
+				SELECT @1B = @HITS - (@2B + @3B + @HR)
+				IF (@PA <> 0 )
+				BEGIN
+					SET @wOBA = ((@BBCoefficient * @BB)+(@HBPCoefficient*@HBP)+(@1BCoefficient*@1B)+(@2BCoefficient*@2B)+(@3BCoefficient*@3B)+(@HRCoefficient*@HR))/@PA
+					SET @wRAA = (@wOBA - @wOBASeason) * @PA
+					SET @WAR = @wRAA / @RPW
+					
+					INSERT INTO PlayerCareerAdvancedStat (Player, Team, Season, wOBA, wRAA, WAR)					
+					VALUES (@PlayerName, @PlayerTeam, @SEASON, @wOBA, @wRAA, @WAR)
+					--UPDATE #twOBAPlayers SET wOBA = @wOBA, wRAA = @wRAA, WAR = @WAR WHERE RowID = @MinCountPlayer
+				END
+				SET @MinCountPlayer = @MinCountPlayer + 1	
+				
+				
+			END
+		
+		DELETE FROM #twOBAPlayers
+		DBCC CHECKIDENT('#twOBAPlayers', RESEED, 0)
+	--select * from PlayerCareerAdvancedStat where Season = @Season
+	END
+
+DROP TABLE #twOBAPlayers
+"@
+    $SQLCmd.CommandText = $StoreProcedure
+    $result = $sqlCmd.ExecuteNonQuery()
+    $SQLCmd.CommandTimeout = 0  #this takes a while
+    $SQLCmd.CommandText = "EXEC UpdateAdvancedStats"
+    Write-Verbose "Updating Advanced Player Stats..."
+    $SQLCmd.ExecuteNonQuery()
+    Write-Verbose "Done"
 }

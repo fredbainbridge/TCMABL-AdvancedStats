@@ -14,3 +14,6 @@ $DBConnection = Get-FBDatabaseReference -ConnectionString $ConnectionString
 Remove-FBTables -SQLConnection $DBConnection -Verbose
 Create-FBTables -SQLConnection $DBConnection -Verbose
 Update-FBPlayerCareer -SQLConnection $DBConnection -Verbose
+Update-FBGames -SQLConnection $DBConnection -Verbose
+Update-FBSeasonAverage -SQLConnection $DBConnection -Verbose
+Update-FBAdvancedStats -SQLConnection $DBConnection -Verbose
